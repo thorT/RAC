@@ -37,13 +37,15 @@
    // [self p_RACSubjectDelegate];
     
     // 5.RACTuple和RACSequence
-    [self p_RACSequence];
+  //  [self p_RACSequence];
     
     // 6.RACCommand
-    [self p_RACCommand];
+   // [self p_RACCommand];
     
     // 7.RACMulticastConnection 处理多次订阅的问题
+    //8. map和flattenMap 的区别
     
+    [self p_then];
     
     
 }
@@ -355,6 +357,205 @@
 //// 解包元组，会把元组的值，按顺序给参数里面的变量赋值
 //// name = @"xmg" age = @20
 //RACTupleUnpack(NSString *name,NSNumber *age) = tuple;
+
+#pragma mark - 8. map和flattenMap 的区别
+- (void)flattenMap
+{
+//    1.FlatternMap中的Block返回信号。
+//    2.Map中的Block返回对象。
+//    3.开发中，如果信号发出的值不是信号，映射一般使用Map
+//    4.开发中，如果信号发出的值是信号，映射一般使用FlatternMap。
+    
+    // 创建信号中的信号
+    RACSubject *signalOfsignals = [RACSubject subject];
+    RACSubject *signal = [RACSubject subject];
+    
+    [[signalOfsignals flattenMap:^RACStream *(id value) {
+        
+        // 当signalOfsignals的signals发出信号才会调用
+        
+        return value;
+        
+    }] subscribeNext:^(id x) {
+        
+        // 只有signalOfsignals的signal发出信号才会调用，因为内部订阅了bindBlock中返回的信号，也就是flattenMap返回的信号。
+        // 也就是flattenMap返回的信号发出内容，才会调用。
+        
+        NSLog(@"%@aaa",x);
+    }];
+    
+    // 信号的信号发送信号
+    [signalOfsignals sendNext:signal];
+    
+    // 信号发送内容
+    [signal sendNext:@1];
+    
+}
+
+#pragma mark - 9. concat :按一定顺序拼接信号，当多个信号发出的时候，有顺序的接收信号。
+- (void)p_concat
+{
+    RACSignal *signalA = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@1];
+        
+        [subscriber sendCompleted];
+        
+        return nil;
+    }];
+    RACSignal *signalB = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@2];
+        
+        return nil;
+    }];
+    
+    // 把signalA拼接到signalB后，signalA发送完成，signalB才会被激活。
+    RACSignal *concatSignal = [signalA concat:signalB];
+    
+    // 以后只需要面对拼接信号开发。
+    // 订阅拼接的信号，不需要单独订阅signalA，signalB
+    // 内部会自动订阅。
+    // 注意：第一个信号必须发送完成，第二个信号才会被激活
+    [concatSignal subscribeNext:^(id x) {
+        
+        NSLog(@"%@",x);
+        
+    }];
+}
+
+
+#pragma mark - 9. then: 用于连接两个信号，当第一个信号完成，才会连接then返回的信号。
+- (void)p_then
+{
+    // then:用于连接两个信号，当第一个信号完成，才会连接then返回的信号
+    // 注意使用then，之前信号的值会被忽略掉.
+    // 底层实现：1、先过滤掉之前的信号发出的值。2.使用concat连接then返回的信号
+    [[[RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@1];
+        [subscriber sendCompleted];
+        return nil;
+    }] then:^RACSignal *{
+        return [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+            [subscriber sendNext:@2];
+            return nil;
+        }];
+    }] subscribeNext:^(id x) {
+        
+        // 只能接收到第二个信号的值，也就是then返回信号的值
+        NSLog(@"%@",x);
+    }];
+}
+
+#pragma mark - 10. merge: 把多个信号合并为一个信号，任何一个信号有新值的时候就会调用。
+- (void)p_merge
+{
+    // merge:把多个信号合并成一个信号
+    //创建多个信号
+    RACSignal *signalA = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@1];
+        
+        
+        return nil;
+    }];
+    
+    RACSignal *signalB = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@2];
+        
+        return nil;
+    }];
+    
+    // 合并信号,任何一个信号发送数据，都能监听到.
+    RACSignal *mergeSignal = [signalA merge:signalB];
+    
+    [mergeSignal subscribeNext:^(id x) {
+        
+        NSLog(@"%@",x);
+        
+    }];
+}
+
+#pragma mark - 11. zipWith: 把两个信号压缩成一个信号，只有当两个信号同时发出信号内容时，并且把两个信号的内容合并成一个元组，才会触发压缩流的next事件。
+- (void)p_zipWith
+{
+    RACSignal *signalA = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@1];
+        
+        
+        return nil;
+    }];
+    
+    RACSignal *signalB = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@2];
+        
+        return nil;
+    }];
+    
+    
+    
+    // 压缩信号A，信号B
+    RACSignal *zipSignal = [signalA zipWith:signalB];
+    
+    [zipSignal subscribeNext:^(id x) {
+        
+        NSLog(@"%@",x);
+    }];
+    
+    // 底层实现:
+    // 1.定义压缩信号，内部就会自动订阅signalA，signalB
+    // 2.每当signalA或者signalB发出信号，就会判断signalA，signalB有没有发出个信号，有就会把最近发出的信号都包装成元组发出
+}
+
+#pragma mark - combineLatest 12. 将多个信号合并起来，并且拿到各个信号的最新的值,必须每个合并的signal至少都有过一次sendNext，才会触发合并的信号。
+- (void)combineLatest
+{
+    RACSignal *signalA = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@1];
+        
+        return nil;
+    }];
+    
+    RACSignal *signalB = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+        
+        [subscriber sendNext:@2];
+        
+        return nil;
+    }];
+    
+    // 聚合
+    // 常见的用法，（先组合在聚合）。combineLatest:(id<NSFastEnumeration>)signals reduce:(id (^)())reduceBlock
+    // reduce中的block简介:
+    // reduceblcok中的参数，有多少信号组合，reduceblcok就有多少参数，每个参数就是之前信号发出的内容
+    // reduceblcok的返回值：聚合信号之后的内容。
+    RACSignal *reduceSignal = [RACSignal combineLatest:@[signalA,signalB] reduce:^id(NSNumber *num1 ,NSNumber *num2){
+        
+        return [NSString stringWithFormat:@"%@ %@",num1,num2];
+        
+    }];
+    
+    [reduceSignal subscribeNext:^(id x) {
+        
+        NSLog(@"%@",x);
+    }];
+    
+    // 底层实现:
+    // 1.订阅聚合信号，每次有内容发出，就会执行reduceblcok，把信号内容转换成reduceblcok返回的值。
+}
+
+
+
+
+
+
+
+
+
 
 
 
